@@ -4,7 +4,7 @@ Study Companion 是一个只供个人使用的、本地优先的学习管理 App
 
 ## 当前状态
 
-当前仓库只包含产品与工程准备文档，以及环境检查脚本。Flutter SDK 尚未安装，因此这里没有生成 `lib/`、`android/`、`ios/` 等 Flutter 标准目录，也没有手工伪造 Flutter 工程文件。
+当前仓库已经由官方 `flutter create .` 生成真实 Flutter 工程，并完成 V0.1 核心逻辑、SQLite 和基础 UI 的分阶段迁移。`pre_flutter/` 仍保留为原始草稿参考，不作为正式源码运行。
 
 已整理的内容：
 
@@ -14,6 +14,14 @@ Study Companion 是一个只供个人使用的、本地优先的学习管理 App
 - 分阶段开发计划：见 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)
 - Flutter 安装后的操作顺序：见 [NEXT_STEPS.md](NEXT_STEPS.md)
 - Flutter 安装前的可复用代码草稿：见 [PRE_FLUTTER_STATUS.md](PRE_FLUTTER_STATUS.md)
+
+当前迁移状态：
+
+- 第一阶段模型、统计和番茄钟已通过 `flutter analyze` 与 `flutter test`。
+- 第二阶段 `sqflite`、`path` 和数据库层已通过 `flutter analyze` 与 `flutter test`。
+- 第三阶段页面和组件已通过 `flutter analyze` 与 `flutter test`。
+- 第四阶段已在 Android 真机 `3B1F6HE5Z1WJJ8Z1` 启动，并通过 adb 切换到统计 Tab 验证交互。
+- 首页、每日待办和统计已接入 SQLite 自动保存；积累页仍保留原来的 demo 页面，下一轮再重做。
 
 ## Flutter 安装前代码
 
@@ -50,6 +58,6 @@ lib/
     focus_timer/       # 番茄钟
 ```
 
-这只是实现约定，不应在 Flutter SDK 安装前手工创建 Flutter 标准目录。
+正式 Flutter 工程已经存在；`pre_flutter/` 下的同名文件只作为迁移前参考。
 
 

@@ -1,6 +1,16 @@
 # Pre-Flutter 状态
 
-本目录是在 Flutter SDK 安装前提前准备的代码草稿。当前没有执行 `flutter analyze`、`flutter test` 或 `flutter run`，因此以下代码均应视为“待 Flutter 安装后验证”。
+本目录是在 Flutter SDK 安装前提前准备的代码草稿。现在正式 Flutter 工程已经生成，相关代码已按阶段复制到正式 `lib/` 和 `test/`；本目录继续保留作对照，不作为正式源码运行。
+
+正式工程的当前验证结果：
+
+- Flutter 3.47.6，Dart 3.13.5。
+- 第一阶段模型、统计、番茄钟：`flutter analyze` 通过，7 个测试通过。
+- 第二阶段 SQLite 依赖和数据库层：`flutter analyze` 通过，8 个测试通过。
+- 第三阶段页面和组件：`flutter analyze` 通过，9 个测试通过。
+- Android 真机 `3B1F6HE5Z1WJJ8Z1` 已启动 App，并通过 adb 切换统计 Tab 验证界面交互。
+
+首页、每日待办和统计已接入 SQLite 自动保存；积累页仍使用原来的 demo 页面，下一轮再单独重做。
 
 ## 1. 已提前写好的代码
 
@@ -31,13 +41,13 @@
 
 纯 Dart 部分仍需要确认 Dart SDK 版本、时区边界和项目 lint 规则，但不依赖 Flutter UI。
 
-## 3. 必须在 Flutter 安装后验证的部分
+## 3. 原先必须在 Flutter 安装后验证的部分
 
 - `lib/data/app_database.dart`：需要 `sqflite` 和 `path` 依赖，并需要在 Android 真机/模拟器上验证数据库路径、表创建、升级和读写。
 - `lib/screens/`、`lib/widgets/`、`lib/app.dart`：依赖 Flutter Material API，需检查 Material 3 API、表单行为、布局和状态刷新。
 - `pre_flutter/test/`：需要 `test` 包；页面测试若后续加入则需要 `flutter_test`。
 
-当前没有安装依赖，也没有假装这些文件已经编译或运行。
+这些验证现在已在正式工程中完成；数据库的真实增删改查仍可在后续补充专门的设备集成测试。
 
 ## 4. Flutter 安装后需要做什么
 
@@ -89,4 +99,3 @@ flutter run
 6. 番茄钟页面的 periodic ticker 生命周期、暂停/继续后的 elapsed 计算，以及结束后只写入一次 StudySession。
 7. 待办页面的日期边界、删除确认和状态刷新。
 8. 统计页面的本地时区、跨日/跨月记录和连续学习天数边界。
-
