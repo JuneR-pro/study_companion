@@ -22,6 +22,8 @@ class HomeScreen extends StatefulWidget {
     required this.onManualCheckIn,
     required this.onDeleteSession,
     required this.onExamChanged,
+    required this.onExamAdded,
+    required this.onExamDeleted,
     this.onOpenTodos,
     this.onOpenStatistics,
   });
@@ -34,6 +36,8 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<DateTime> onManualCheckIn;
   final ValueChanged<StudySession> onDeleteSession;
   final ValueChanged<Exam> onExamChanged;
+  final ValueChanged<Exam> onExamAdded;
+  final ValueChanged<Exam> onExamDeleted;
   final VoidCallback? onOpenTodos;
   final VoidCallback? onOpenStatistics;
 
@@ -43,13 +47,72 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   Future<void> _editExam(Exam exam) async {
-    final date = await showDatePicker(
+    final nameController = TextEditingController(text: exam.name);
+    var date = exam.examDate;
+    final result = await showDialog<Exam>(
       context: context,
-      initialDate: exam.examDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('编辑考试倒计时'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: '考试名称')),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final picked = await showDatePicker(context: context, initialDate: date, firstDate: DateTime(2020), lastDate: DateTime(2100));
+                if (picked != null) setDialogState(() => date = picked);
+              },
+              icon: const Icon(Icons.event),
+              label: Text('考试日期：${date.year}年${date.month}月${date.day}日'),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+            FilledButton(onPressed: () { final name = nameController.text.trim(); if (name.isEmpty) return; Navigator.pop(dialogContext, exam.copyWith(name: name, examDate: date)); }, child: const Text('保存')),
+          ],
+        ),
+      ),
     );
-    if (date != null) widget.onExamChanged(exam.copyWith(examDate: date));
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    nameController.dispose();
+    if (result != null) widget.onExamChanged(result);
+  }
+
+  Future<void> _addExam() async {
+    final nameController = TextEditingController();
+    var date = DateTime.now();
+    final result = await showDialog<Exam>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('添加考试倒计时'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: nameController, autofocus: true, decoration: const InputDecoration(labelText: '考试名称')),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(onPressed: () async { final picked = await showDatePicker(context: context, initialDate: date, firstDate: DateTime(2020), lastDate: DateTime(2100)); if (picked != null) setDialogState(() => date = picked); }, icon: const Icon(Icons.event), label: Text('考试日期：${date.year}年${date.month}月${date.day}日')),
+          ]),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')), FilledButton(onPressed: () { final name = nameController.text.trim(); if (name.isEmpty) return; Navigator.pop(dialogContext, Exam(id: 'exam-${DateTime.now().microsecondsSinceEpoch}', name: name, examDate: date)); }, child: const Text('保存'))],
+        ),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    nameController.dispose();
+    if (result != null) widget.onExamAdded(result);
+  }
+
+  Future<void> _confirmDeleteExam(Exam exam) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除考试倒计时'),
+        content: Text('确定删除“${exam.name}”吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (confirmed == true) widget.onExamDeleted(exam);
   }
 
   void _showDayDetails(DateTime date) {
@@ -170,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(fontSize: 16, color: StudyTheme.muted),
             ),
             const SizedBox(height: 24),
-            ExamCountdownCard(exams: widget.exams, onTap: _editExam),
+            ExamCountdownCard(exams: widget.exams, onTap: _editExam, onAdd: _addExam, onDelete: _confirmDeleteExam),
             const SizedBox(height: 18),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

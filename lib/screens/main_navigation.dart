@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 
@@ -61,30 +61,23 @@ class _MainNavigationState extends State<MainNavigation> {
       final sessions = await _database.getSessions();
       final exams = await _database.getExams();
       final materials = await _database.getMaterials();
+      // Remove only the two old built-in examples; user-created materials remain intact.
+      final oldDemoMaterials = materials
+          .where((item) => item.id == 'demo-material-1' || item.id == 'demo-material-2')
+          .toList();
+      for (final item in oldDemoMaterials) {
+        await _database.deleteMaterial(item.id);
+      }
+      materials.removeWhere((item) => item.id == 'demo-material-1' || item.id == 'demo-material-2');
       final wrongQuestions = await _database.getWrongQuestions();
       final summaries = await _database.getDailySummaries();
-      final knownNames = exams.map((exam) => exam.name).toSet();
-      // Missing exams have no official date yet: never fabricate a deadline.
-      for (final name in ['国考', '浙江省考', '浙江事业编']) {
-        if (!knownNames.contains(name)) {
-          final exam = Exam(
-            id: 'exam-$name',
-            name: name,
-            examDate: DateTime(2100),
-          );
-          await _database.createExam(exam);
-          exams.add(exam);
-        }
-      }
       if (!mounted) {
         return;
       }
       setState(() {
         _todos = todos;
         _sessions = sessions;
-        _exams = exams
-            .where((exam) => ['国考', '浙江省考', '浙江事业编'].contains(exam.name))
-            .toList();
+        _exams = exams;
         if (materials.isNotEmpty) _materials = materials;
         _wrongQuestions = wrongQuestions;
         _summaries = {
@@ -97,7 +90,7 @@ class _MainNavigationState extends State<MainNavigation> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _loadError = '本地数据读取失败：$error';
+          _loadError = '鏈湴鏁版嵁璇诲彇澶辫触锛?error';
         });
       }
     }
@@ -110,10 +103,10 @@ class _MainNavigationState extends State<MainNavigation> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('自动保存失败，请重试：$error'),
+            content: Text('鑷姩淇濆瓨澶辫触锛岃閲嶈瘯锛?error'),
             duration: const Duration(seconds: 8),
             action: SnackBarAction(
-              label: '重试',
+              label: '閲嶈瘯',
               onPressed: () => _save(operation),
             ),
           ),
@@ -131,6 +124,15 @@ class _MainNavigationState extends State<MainNavigation> {
     _save(() => _database.updateExam(exam));
   }
 
+  void _examAdded(Exam exam) {
+    setState(() => _exams = [..._exams, exam]);
+    _save(() => _database.createExam(exam));
+  }
+
+  void _examDeleted(Exam exam) {
+    setState(() => _exams = _exams.where((item) => item.id != exam.id).toList());
+    _save(() => _database.deleteExam(exam.id));
+  }
   void _todoCreated(Todo todo) {
     setState(() => _todos = [..._todos, todo]);
     _save(() => _database.createTodo(todo));
@@ -163,12 +165,12 @@ class _MainNavigationState extends State<MainNavigation> {
     _sessionCreated(
       StudySession(
         id: 'checkin-${DateTime.now().microsecondsSinceEpoch}',
-        subject: '常识',
+        subject: '甯歌瘑',
         startTime: start,
         endTime: start,
         duration: Duration.zero,
         source: 'checkin',
-        note: '手动打卡',
+        note: '鎵嬪姩鎵撳崱',
       ),
     );
   }
@@ -207,6 +209,23 @@ class _MainNavigationState extends State<MainNavigation> {
     _save(() => _database.deleteWrongQuestion(id));
   }
 
+  void _materialCreated(study_material.Material material) {
+    setState(() => _materials = [material, ..._materials]);
+    _save(() => _database.createMaterial(material));
+  }
+
+  void _materialUpdated(study_material.Material material) {
+    setState(() {
+      _materials = _materials.map((item) => item.id == material.id ? material : item).toList();
+    });
+    _save(() => _database.updateMaterial(material));
+  }
+
+  void _materialDeleted(String id) {
+    setState(() => _materials = _materials.where((item) => item.id != id).toList());
+    _save(() => _database.deleteMaterial(id));
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -222,6 +241,8 @@ class _MainNavigationState extends State<MainNavigation> {
         onManualCheckIn: _manualCheckIn,
         onDeleteSession: _sessionDeleted,
         onExamChanged: _examChanged,
+        onExamAdded: _examAdded,
+        onExamDeleted: _examDeleted,
         onOpenTodos: () => setState(() => _index = 1),
         onOpenStatistics: () => setState(() => _index = 2),
       ),
@@ -243,7 +264,12 @@ class _MainNavigationState extends State<MainNavigation> {
         onWrongQuestionCreated: _wrongQuestionCreated,
         onWrongQuestionDeleted: _wrongQuestionDeleted,
       ),
-      MaterialScreen(initialMaterials: _materials),
+      MaterialScreen(
+        initialMaterials: _materials,
+        onCreated: _materialCreated,
+        onUpdated: _materialUpdated,
+        onDeleted: _materialDeleted,
+      ),
     ];
     return Scaffold(
       body: Column(
@@ -261,7 +287,7 @@ class _MainNavigationState extends State<MainNavigation> {
                     });
                     unawaited(_loadLocalData());
                   },
-                  child: const Text('重试'),
+                  child: const Text('閲嶈瘯'),
                 ),
               ],
             ),
@@ -274,28 +300,16 @@ class _MainNavigationState extends State<MainNavigation> {
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),
         destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: '首页',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.checklist_outlined),
-            selectedIcon: Icon(Icons.checklist),
-            label: '每日待办',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.insights_outlined),
-            selectedIcon: Icon(Icons.insights),
-            label: '统计',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.collections_bookmark_outlined),
-            selectedIcon: Icon(Icons.collections_bookmark),
-            label: '积累',
-          ),
+          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '首页'),
+          NavigationDestination(icon: Icon(Icons.checklist_outlined), selectedIcon: Icon(Icons.checklist), label: '每日待办'),
+          NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: '统计'),
+          NavigationDestination(icon: Icon(Icons.collections_bookmark_outlined), selectedIcon: Icon(Icons.collections_bookmark), label: '积累'),
         ],
       ),
     );
   }
 }
+
+
+
+
