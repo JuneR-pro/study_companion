@@ -3,6 +3,7 @@ package com.example.study_companion
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -18,6 +19,7 @@ class MainActivity : FlutterActivity() {
     private var ringtone: Ringtone? = null
     private val handler = Handler(Looper.getMainLooper())
     private val stopAlert = Runnable { stopReminder() }
+    private val TAG = "MainActivity"
 
     @Suppress("DEPRECATION")
     private fun stopReminder() {
@@ -71,11 +73,15 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "study_companion/overlay")
             .setMethodCallHandler { call, result ->
+                Log.d(TAG, "Overlay method called: ${call.method}")
                 when (call.method) {
                     "canDrawOverlays" -> {
-                        result.success(Settings.canDrawOverlays(this))
+                        val canDraw = Settings.canDrawOverlays(this)
+                        Log.d(TAG, "canDrawOverlays: $canDraw")
+                        result.success(canDraw)
                     }
                     "requestOverlayPermission" -> {
+                        Log.d(TAG, "requestOverlayPermission called")
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
                             intent.data = android.net.Uri.parse("package:$packageName")
@@ -85,6 +91,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "startOverlay" -> {
                         val subject = call.argument<String>("subject") ?: "学习"
+                        Log.d(TAG, "startOverlay called with subject: $subject")
                         val intent = Intent(this, TimerOverlayService::class.java).apply {
                             action = TimerOverlayService.ACTION_START
                             putExtra(TimerOverlayService.EXTRA_SUBJECT, subject)
@@ -94,11 +101,13 @@ class MainActivity : FlutterActivity() {
                         } else {
                             startService(intent)
                         }
+                        Log.d(TAG, "Service started")
                         result.success(null)
                     }
                     "updateOverlay" -> {
                         val time = call.argument<String>("time") ?: "00:00"
                         val subject = call.argument<String>("subject")
+                        Log.d(TAG, "updateOverlay called with time: $time, subject: $subject")
                         val intent = Intent(this, TimerOverlayService::class.java).apply {
                             action = TimerOverlayService.ACTION_UPDATE
                             putExtra(TimerOverlayService.EXTRA_TIME, time)
@@ -108,6 +117,7 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "stopOverlay" -> {
+                        Log.d(TAG, "stopOverlay called")
                         val intent = Intent(this, TimerOverlayService::class.java).apply {
                             action = TimerOverlayService.ACTION_STOP
                         }
@@ -115,7 +125,9 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "isOverlayRunning" -> {
-                        result.success(TimerOverlayService.isRunning)
+                        val running = TimerOverlayService.isRunning
+                        Log.d(TAG, "isOverlayRunning: $running")
+                        result.success(running)
                     }
                     else -> result.notImplemented()
                 }

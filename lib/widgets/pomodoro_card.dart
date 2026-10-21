@@ -40,6 +40,28 @@ class _PomodoroCardState extends State<PomodoroCard> {
     }
   }
 
+  Future<void> _requestOverlayPermission() async {
+    await OverlayService.requestOverlayPermission();
+    await Future.delayed(const Duration(milliseconds: 500));
+    await _checkOverlayPermission();
+  }
+
+  Future<void> _startOverlayWithPermission() async {
+    if (!_overlayPermissionGranted) {
+      await _requestOverlayPermission();
+    }
+    if (_overlayPermissionGranted) {
+      await OverlayService.startOverlay(subject: _subject);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请授予悬浮窗权限以启用后台计时功能'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   Future<void> _playReminder() async {
     try {
       final warning = await _reminder.invokeMethod<String>('play');
@@ -124,9 +146,7 @@ class _PomodoroCardState extends State<PomodoroCard> {
           _timer.start();
           _ensureTicker();
           TimerState.instance.setRunning(true, subject: _subject);
-          if (_overlayPermissionGranted) {
-            OverlayService.startOverlay(subject: _subject);
-          }
+          _startOverlayWithPermission();
           break;
         case PomodoroStatus.running:
           _timer.pause();
@@ -143,9 +163,7 @@ class _PomodoroCardState extends State<PomodoroCard> {
           _notified = false;
           _ensureTicker();
           TimerState.instance.setRunning(true, subject: _subject);
-          if (_overlayPermissionGranted) {
-            OverlayService.startOverlay(subject: _subject);
-          }
+          _startOverlayWithPermission();
           break;
       }
     });

@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -29,6 +30,7 @@ class TimerOverlayService : Service() {
     private var updateRunnable: Runnable? = null
 
     companion object {
+        const val TAG = "TimerOverlayService"
         const val ACTION_START = "start"
         const val ACTION_UPDATE = "update"
         const val ACTION_STOP = "stop"
@@ -46,14 +48,20 @@ class TimerOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(TAG, "onCreate called")
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("计时中..."))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(TAG, "onStartCommand called with action: ${intent?.action}")
         when (intent?.action) {
-            ACTION_START -> showOverlay(intent.getStringExtra(EXTRA_SUBJECT) ?: "学习")
+            ACTION_START -> {
+                val subject = intent.getStringExtra(EXTRA_SUBJECT) ?: "学习"
+                Log.d(TAG, "Starting overlay with subject: $subject")
+                showOverlay(subject)
+            }
             ACTION_UPDATE -> updateOverlay(
                 intent.getStringExtra(EXTRA_TIME) ?: "00:00",
                 intent.getStringExtra(EXTRA_SUBJECT)
@@ -88,6 +96,7 @@ class TimerOverlayService : Service() {
     }
 
     private fun showOverlay(subject: String) {
+        Log.d(TAG, "showOverlay called, overlayView is null: ${overlayView == null}")
         if (overlayView != null) return
 
         isRunning = true
@@ -110,7 +119,12 @@ class TimerOverlayService : Service() {
         }
 
         overlayView = createOverlayView(subject)
-        windowManager?.addView(overlayView, params)
+        try {
+            windowManager?.addView(overlayView, params)
+            Log.d(TAG, "Overlay view added successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add overlay view: ${e.message}", e)
+        }
     }
 
     private fun createOverlayView(subject: String): View {

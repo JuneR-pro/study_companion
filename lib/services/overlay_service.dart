@@ -7,8 +7,11 @@ class OverlayService {
   static Future<bool> canDrawOverlays() async {
     if (!Platform.isAndroid) return false;
     try {
-      return await _channel.invokeMethod<bool>('canDrawOverlays') ?? false;
-    } catch (_) {
+      final result = await _channel.invokeMethod<bool>('canDrawOverlays');
+      print('[OverlayService] canDrawOverlays: $result');
+      return result ?? false;
+    } catch (e) {
+      print('[OverlayService] canDrawOverlays error: $e');
       return false;
     }
   }
@@ -16,15 +19,22 @@ class OverlayService {
   static Future<void> requestOverlayPermission() async {
     if (!Platform.isAndroid) return;
     try {
+      print('[OverlayService] requestOverlayPermission called');
       await _channel.invokeMethod('requestOverlayPermission');
-    } catch (_) {}
+    } catch (e) {
+      print('[OverlayService] requestOverlayPermission error: $e');
+    }
   }
 
   static Future<void> startOverlay({required String subject}) async {
     if (!Platform.isAndroid) return;
     try {
+      print('[OverlayService] startOverlay called with subject: $subject');
       await _channel.invokeMethod('startOverlay', {'subject': subject});
-    } catch (_) {}
+      print('[OverlayService] startOverlay success');
+    } catch (e) {
+      print('[OverlayService] startOverlay error: $e');
+    }
   }
 
   static Future<void> updateOverlay({
@@ -37,21 +47,29 @@ class OverlayService {
         'time': time,
         if (subject != null) 'subject': subject,
       });
-    } catch (_) {}
+    } catch (e) {
+      print('[OverlayService] updateOverlay error: $e');
+    }
   }
 
   static Future<void> stopOverlay() async {
     if (!Platform.isAndroid) return;
     try {
+      print('[OverlayService] stopOverlay called');
       await _channel.invokeMethod('stopOverlay');
-    } catch (_) {}
+    } catch (e) {
+      print('[OverlayService] stopOverlay error: $e');
+    }
   }
 
   static Future<bool> isOverlayRunning() async {
     if (!Platform.isAndroid) return false;
     try {
-      return await _channel.invokeMethod<bool>('isOverlayRunning') ?? false;
-    } catch (_) {
+      final result = await _channel.invokeMethod<bool>('isOverlayRunning');
+      print('[OverlayService] isOverlayRunning: $result');
+      return result ?? false;
+    } catch (e) {
+      print('[OverlayService] isOverlayRunning error: $e');
       return false;
     }
   }
