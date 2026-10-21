@@ -1,10 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
 
 import '../models/daily_summary.dart';
 import '../models/study_session.dart';
@@ -15,7 +11,7 @@ import '../utils/study_theme.dart';
 import '../widgets/study_charts.dart';
 
 class StatisticsScreen extends StatefulWidget {
-  const StatisticsScreen({super.key, required this.sessions, required this.summaries, required this.wrongQuestions, this.onCreateSession, this.onDeleteSession, this.onSummarySaved, this.onSummaryAutosaved, this.onWrongQuestionCreated, this.onWrongQuestionDeleted});
+  const StatisticsScreen({super.key, required this.sessions, required this.summaries, required this.wrongQuestions, this.onCreateSession, this.onDeleteSession, this.onSummarySaved, this.onSummaryAutosaved, this.onOpenWrongQuestions});
   final List<StudySession> sessions;
   final Map<String, DailySummary> summaries;
   final List<WrongQuestion> wrongQuestions;
@@ -23,15 +19,13 @@ class StatisticsScreen extends StatefulWidget {
   final ValueChanged<StudySession>? onDeleteSession;
   final ValueChanged<DailySummary>? onSummarySaved;
   final ValueChanged<DailySummary>? onSummaryAutosaved;
-  final ValueChanged<WrongQuestion>? onWrongQuestionCreated;
-  final ValueChanged<String>? onWrongQuestionDeleted;
+  final VoidCallback? onOpenWrongQuestions;
   @override State<StatisticsScreen> createState() => _StatisticsScreenState();
 }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
   late DateTime _selectedDate;
   late DateTime _selectedMonth;
-  String? _wrongSubject;
   Timer? _summaryDebounce;
 
   @override
@@ -77,56 +71,12 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     if (content != null) widget.onSummarySaved?.call(DailySummary(date: _selectedDate, content: content, updatedAt: DateTime.now()));
   }
 
-  Future<void> _addWrongQuestion() async {
-    var subject = StudySubject.language.label; String? imagePath; var open = true; final controller = TextEditingController();
-    final result = await showDialog<WrongQuestion>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-      title: const Text('新增错题'),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        DropdownButtonFormField<String>(initialValue: subject, decoration: const InputDecoration(labelText: '错题板块'), items: StudySubject.values.map((s) => DropdownMenuItem(value: s.label, child: Text(s.label))).toList(), onChanged: (v) => setDialogState(() => subject = v ?? subject)),
-        const SizedBox(height: 12),
-        TextField(controller: controller, minLines: 3, maxLines: 5, decoration: const InputDecoration(hintText: '手动输入错题内容')),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(onPressed: () async { try { final image = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 85); if (image == null) return; final dir = await getApplicationDocumentsDirectory(); final target = path.join(dir.path, 'wrong_${DateTime.now().microsecondsSinceEpoch}${path.extension(image.path)}'); await File(image.path).copy(target); if (open && dialogContext.mounted) setDialogState(() => imagePath = target); } catch (error) { if (open && dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('拍照失败：$error'))); } }, icon: const Icon(Icons.camera_alt_outlined), label: Text(imagePath == null ? '拍照录入' : '已保存照片 · 重新拍摄')),
-      ])),
-      actions: [
-        TextButton(onPressed: () { open = false; Navigator.pop(dialogContext); }, child: const Text('取消')),
-        FilledButton(onPressed: () { final text = controller.text.trim(); if (text.isEmpty && imagePath == null) return; open = false; Navigator.pop(dialogContext, WrongQuestion(id: 'wrong-${DateTime.now().microsecondsSinceEpoch}', subject: subject, content: text, imagePath: imagePath, createdAt: DateTime.now())); }, child: const Text('保存')),
-      ],
-    )));
-    await Future<void>.delayed(const Duration(milliseconds: 250)); controller.dispose(); if (result != null) widget.onWrongQuestionCreated?.call(result);
-  }
-
-  void _showWrongQuestion(WrongQuestion question) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(question.subject),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (question.content.isNotEmpty) Text(question.content),
-              if (question.imagePath != null) ...[
-                const SizedBox(height: 12),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 320),
-                  child: Image.file(File(question.imagePath!), fit: BoxFit.contain),
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('关闭'))],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final dayValues = _subjectValues(_daySessions);
     final monthSessions = widget.sessions.where((s) { final d = s.startTime.toLocal(); return d.year == _selectedMonth.year && d.month == _selectedMonth.month; });
     final summary = widget.summaries[dateKey(_selectedDate)];
+    final recentQuestions = widget.wrongQuestions.take(3).toList();
     return Scaffold(body: SafeArea(child: ListView(padding: const EdgeInsets.fromLTRB(16, 20, 16, 28), children: [
       const Text('学习统计', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: StudyTheme.ink)),
       const SizedBox(height: 4), const Text('看看你的学习成果', style: TextStyle(fontSize: 16, color: StudyTheme.muted)), const SizedBox(height: 20),
@@ -142,19 +92,24 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('每日小结', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)), FilledButton.tonalIcon(onPressed: _editSummary, icon: const Icon(Icons.edit_note), label: const Text('复查 / 编辑'))]), const SizedBox(height: 10), Text(summary?.content.isNotEmpty == true ? summary!.content : '还没有写下今天的小结。', style: const TextStyle(height: 1.5, color: StudyTheme.muted))]))),
       const SizedBox(height: 16),
       Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('错题板块', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)), FilledButton.tonalIcon(onPressed: _addWrongQuestion, icon: const Icon(Icons.add), label: const Text('新增错题'))]),
-        const SizedBox(height: 10),
-        Wrap(spacing: 6, children: [ChoiceChip(label: const Text('全部'), selected: _wrongSubject == null, onSelected: (_) => setState(() => _wrongSubject = null)), ...StudySubject.values.map((s) => ChoiceChip(label: Text(s.label), selected: _wrongSubject == s.label, selectedColor: s.color, onSelected: (_) => setState(() => _wrongSubject = s.label)))]),
-        const SizedBox(height: 10),
-        if (widget.wrongQuestions.isEmpty) const Text('还没有记录错题。', style: TextStyle(color: StudyTheme.muted))
-        else ...widget.wrongQuestions.where((q) => _wrongSubject == null || q.subject == _wrongSubject).map((question) => ListTile(
-          contentPadding: EdgeInsets.zero,
-          onTap: () => _showWrongQuestion(question),
-          leading: CircleAvatar(backgroundColor: StudySubject.fromLabel(question.subject).color, child: const Icon(Icons.priority_high, color: Colors.white, size: 18)),
-          title: Text(question.subject),
-          subtitle: Text(question.content.isEmpty ? '图片错题 · 点击查看' : question.content, maxLines: 2, overflow: TextOverflow.ellipsis),
-          trailing: IconButton(onPressed: () => widget.onWrongQuestionDeleted?.call(question.id), icon: const Icon(Icons.delete_outline)),
-        )),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const Text('错题板块', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          TextButton.icon(onPressed: widget.onOpenWrongQuestions, icon: const Icon(Icons.arrow_forward, size: 18), label: const Text('查看全部')),
+        ]),
+        const SizedBox(height: 8),
+        Text('共 ${widget.wrongQuestions.length} 道错题', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: StudyTheme.ink)),
+        if (recentQuestions.isEmpty)
+          const Padding(padding: EdgeInsets.only(top: 8), child: Text('还没有记录错题。', style: TextStyle(color: StudyTheme.muted)))
+        else
+          ...recentQuestions.map((q) => Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Row(children: [
+              Container(width: 6, height: 6, decoration: BoxDecoration(color: StudySubject.fromLabel(q.subject).color, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Expanded(child: Text(q.name.isNotEmpty ? q.name : q.subject, style: const TextStyle(fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
+              Text(q.subject, style: const TextStyle(fontSize: 12, color: StudyTheme.muted)),
+            ]),
+          )),
       ]))),
     ])));
   }

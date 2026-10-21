@@ -10,11 +10,14 @@ import '../models/material.dart' as study_material;
 import '../models/study_session.dart';
 import '../models/todo.dart';
 import '../models/wrong_question.dart';
+import '../models/wrong_notebook.dart';
+import '../models/wrong_custom_tag.dart';
 import '../utils/date_helpers.dart';
 import 'home_screen.dart';
 import 'material_screen.dart';
 import 'statistics_screen.dart';
 import 'todo_screen.dart';
+import 'wrong_questions_screen.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key, this.database, this.loadFromDatabase = true});
@@ -33,7 +36,11 @@ class _MainNavigationState extends State<MainNavigation> {
   late List<Exam> _exams;
   late List<study_material.Material> _materials;
   late List<WrongQuestion> _wrongQuestions;
+  late List<WrongNotebook> _notebooks;
+  late List<WrongCustomTag> _customTags;
   late Map<String, DailySummary> _summaries;
+  String _workspaceName = '龙哥公考学习工作台';
+  String _signature = '把每天的积累，变成上岸的底气';
   bool _loading = true;
   String? _loadError;
   Future<void> _pendingSave = Future.value();
@@ -47,6 +54,8 @@ class _MainNavigationState extends State<MainNavigation> {
     _exams = widget.loadFromDatabase ? [] : DemoData.exams();
     _materials = DemoData.materials();
     _wrongQuestions = [];
+    _notebooks = [];
+    _customTags = [];
     _summaries = {};
     if (widget.loadFromDatabase) {
       unawaited(_loadLocalData());
@@ -70,7 +79,11 @@ class _MainNavigationState extends State<MainNavigation> {
       }
       materials.removeWhere((item) => item.id == 'demo-material-1' || item.id == 'demo-material-2');
       final wrongQuestions = await _database.getWrongQuestions();
+      final notebooks = await _database.getWrongNotebooks();
+      final customTags = await _database.getWrongCustomTags();
       final summaries = await _database.getDailySummaries();
+      final workspaceName = await _database.getSetting('workspaceName', '龙哥公考学习工作台');
+      final signature = await _database.getSetting('signature', '把每天的积累，变成上岸的底气');
       if (!mounted) {
         return;
       }
@@ -80,9 +93,13 @@ class _MainNavigationState extends State<MainNavigation> {
         _exams = exams;
         if (materials.isNotEmpty) _materials = materials;
         _wrongQuestions = wrongQuestions;
+        _notebooks = notebooks;
+        _customTags = customTags;
         _summaries = {
           for (final summary in summaries) dateKey(summary.date): summary,
         };
+        _workspaceName = workspaceName;
+        _signature = signature;
         _loading = false;
         _loadError = null;
       });
@@ -209,6 +226,75 @@ class _MainNavigationState extends State<MainNavigation> {
     _save(() => _database.deleteWrongQuestion(id));
   }
 
+  void _wrongQuestionUpdated(WrongQuestion question) {
+    setState(
+      () => _wrongQuestions = _wrongQuestions.map((q) => q.id == question.id ? question : q).toList(),
+    );
+    _save(() => _database.updateWrongQuestion(question));
+  }
+
+  void _notebookCreated(WrongNotebook notebook) {
+    setState(() => _notebooks = [..._notebooks, notebook]);
+    _save(() => _database.createWrongNotebook(notebook));
+  }
+
+  void _notebookUpdated(WrongNotebook notebook) {
+    setState(() => _notebooks = _notebooks.map((n) => n.id == notebook.id ? notebook : n).toList());
+    _save(() => _database.updateWrongNotebook(notebook));
+  }
+
+  void _notebookDeleted(String id) {
+    setState(() {
+      _notebooks = _notebooks.where((n) => n.id != id).toList();
+      _wrongQuestions = _wrongQuestions.map((q) => q.notebookId == id ? q.copyWith(notebookId: 'default') : q).toList();
+    });
+    _save(() => _database.deleteWrongNotebook(id));
+  }
+
+  void _tagCreated(WrongCustomTag tag) {
+    setState(() => _customTags = [..._customTags, tag]);
+    _save(() => _database.createWrongCustomTag(tag));
+  }
+
+  void _tagUpdated(WrongCustomTag tag) {
+    setState(() => _customTags = _customTags.map((t) => t.id == tag.id ? tag : t).toList());
+    _save(() => _database.updateWrongCustomTag(tag));
+  }
+
+  void _tagDeleted(String id) {
+    setState(() => _customTags = _customTags.where((t) => t.id != id).toList());
+    _save(() => _database.deleteWrongCustomTag(id));
+  }
+
+  Future<void> _questionTagsSet(String questionId, List<String> tagIds) async {
+    await _database.setWrongQuestionTags(questionId, tagIds);
+  }
+
+  Future<List<String>> _getQuestionTagIds(String questionId) async {
+    return _database.getWrongQuestionTagIds(questionId);
+  }
+
+  void _openWrongQuestions() {
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => WrongQuestionsScreen(
+        wrongQuestions: _wrongQuestions,
+        notebooks: _notebooks,
+        customTags: _customTags,
+        onQuestionCreated: _wrongQuestionCreated,
+        onQuestionDeleted: _wrongQuestionDeleted,
+        onQuestionUpdated: _wrongQuestionUpdated,
+        onNotebookCreated: _notebookCreated,
+        onNotebookUpdated: _notebookUpdated,
+        onNotebookDeleted: _notebookDeleted,
+        onTagCreated: _tagCreated,
+        onTagUpdated: _tagUpdated,
+        onTagDeleted: _tagDeleted,
+        onQuestionTagsSet: _questionTagsSet,
+        getQuestionTagIds: _getQuestionTagIds,
+      ),
+    ));
+  }
+
   void _materialCreated(study_material.Material material) {
     setState(() => _materials = [material, ..._materials]);
     _save(() => _database.createMaterial(material));
@@ -224,6 +310,15 @@ class _MainNavigationState extends State<MainNavigation> {
   void _materialDeleted(String id) {
     setState(() => _materials = _materials.where((item) => item.id != id).toList());
     _save(() => _database.deleteMaterial(id));
+  }
+
+  void _profileChanged(String name, String signature) {
+    setState(() {
+      _workspaceName = name;
+      _signature = signature;
+    });
+    _save(() => _database.setSetting('workspaceName', name));
+    _save(() => _database.setSetting('signature', signature));
   }
 
   @override
@@ -243,6 +338,9 @@ class _MainNavigationState extends State<MainNavigation> {
         onExamChanged: _examChanged,
         onExamAdded: _examAdded,
         onExamDeleted: _examDeleted,
+        workspaceName: _workspaceName,
+        signature: _signature,
+        onProfileChanged: _profileChanged,
         onOpenTodos: () => setState(() => _index = 1),
         onOpenStatistics: () => setState(() => _index = 2),
       ),
@@ -261,8 +359,7 @@ class _MainNavigationState extends State<MainNavigation> {
         onDeleteSession: _sessionDeleted,
         onSummarySaved: _summarySaved,
         onSummaryAutosaved: _summaryAutosaved,
-        onWrongQuestionCreated: _wrongQuestionCreated,
-        onWrongQuestionDeleted: _wrongQuestionDeleted,
+        onOpenWrongQuestions: _openWrongQuestions,
       ),
       MaterialScreen(
         initialMaterials: _materials,

@@ -8,7 +8,10 @@ import '../models/material.dart';
 import '../models/study_session.dart';
 import '../models/todo.dart';
 import '../models/wrong_question.dart';
+import '../models/wrong_notebook.dart';
+import '../models/wrong_custom_tag.dart';
 import '../utils/date_helpers.dart';
+import '../utils/study_theme.dart';
 
 class AppDatabase {
   AppDatabase({this.databasePath});
@@ -24,12 +27,14 @@ class AppDatabase {
         path.join(await getDatabasesPath(), 'study_companion.db');
     _database = await openDatabase(
       filePath,
-      version: 2,
+      version: 4,
       onCreate: (db, version) async {
         await _createSchema(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createAdditionalSchema(db);
+        if (oldVersion < 3) await _createSettingsSchema(db);
+        if (oldVersion < 4) await _createWrongQuestionV4Schema(db);
       },
     );
     return _database!;
@@ -98,6 +103,8 @@ class AppDatabase {
     ''');
     await db.execute('CREATE INDEX exams_date_idx ON exams(examDate)');
     await _createAdditionalSchema(db);
+    await _createSettingsSchema(db);
+    await _createWrongQuestionV4Schema(db);
   }
 
   static Future<void> _createAdditionalSchema(Database db) async {
@@ -264,33 +271,6 @@ class AppDatabase {
         .toList();
   }
 
-  Future<void> createWrongQuestion(WrongQuestion question) async {
-    final db = await database;
-    await db.insert(
-      'wrong_questions',
-      question.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
-
-  Future<List<WrongQuestion>> getWrongQuestions({String? subject}) async {
-    final db = await database;
-    final rows = await db.query(
-      'wrong_questions',
-      where: subject == null ? null : 'subject = ?',
-      whereArgs: subject == null ? null : [subject],
-      orderBy: 'createdAt DESC',
-    );
-    return rows
-        .map((row) => WrongQuestion.fromMap(Map<String, Object?>.from(row)))
-        .toList();
-  }
-
-  Future<void> deleteWrongQuestion(String id) async {
-    final db = await database;
-    await db.delete('wrong_questions', where: 'id = ?', whereArgs: [id]);
-  }
-
   // Material CRUD ----------------------------------------------------------
   Future<void> createMaterial(Material material) async {
     final db = await database;
@@ -367,6 +347,189 @@ class AppDatabase {
   Future<void> deleteExam(String id) async {
     final db = await database;
     await db.delete('exams', where: 'id = ?', whereArgs: [id]);
+  }
+
+  static Future<void> _createSettingsSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<String> getSetting(String key, String defaultValue) async {
+    final db = await database;
+    final rows = await db.query(
+      'settings',
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return defaultValue;
+    return rows.first['value'] as String;
+  }
+
+  Future<void> setSetting(String key, String value) async {
+    final db = await database;
+    await db.insert(
+      'settings',
+      {'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<void> _createWrongQuestionV4Schema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS wrong_notebooks (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        iconName TEXT NOT NULL,
+        colorValue INTEGER NOT NULL,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      "INSERT OR IGNORE INTO wrong_notebooks (id, name, iconName, colorValue, createdAt) "
+      "VALUES ('default', '默认错题本', 'folder', ${StudyTheme.accent.value}, '${DateTime.now().toUtc().toIso8601String()}')",
+    );
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS wrong_custom_tags (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        iconName TEXT NOT NULL,
+        colorValue INTEGER NOT NULL,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS wrong_question_tags (
+        questionId TEXT NOT NULL,
+        tagId TEXT NOT NULL,
+        PRIMARY KEY (questionId, tagId)
+      )
+    ''');
+
+    try {
+      await db.execute("ALTER TABLE wrong_questions ADD COLUMN name TEXT NOT NULL DEFAULT ''");
+    } catch (_) {}
+    try {
+      await db.execute("ALTER TABLE wrong_questions ADD COLUMN notebookId TEXT NOT NULL DEFAULT 'default'");
+    } catch (_) {}
+
+    final rows = await db.query('wrong_questions', orderBy: 'createdAt ASC');
+    for (var i = 0; i < rows.length; i++) {
+      final id = rows[i]['id'] as String;
+      await db.update(
+        'wrong_questions',
+        {'name': '错题${i + 1}', 'notebookId': 'default'},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS wrong_questions_notebook_idx ON wrong_questions(notebookId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS wrong_question_tags_tag_idx ON wrong_question_tags(tagId)',
+    );
+  }
+
+  // WrongNotebook CRUD -----------------------------------------------------
+  Future<void> createWrongNotebook(WrongNotebook notebook) async {
+    final db = await database;
+    await db.insert('wrong_notebooks', notebook.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<WrongNotebook>> getWrongNotebooks() async {
+    final db = await database;
+    final rows = await db.query('wrong_notebooks', orderBy: 'createdAt ASC');
+    return rows.map((r) => WrongNotebook.fromMap(Map<String, Object?>.from(r))).toList();
+  }
+
+  Future<void> updateWrongNotebook(WrongNotebook notebook) async {
+    final db = await database;
+    await db.update('wrong_notebooks', notebook.toMap(), where: 'id = ?', whereArgs: [notebook.id]);
+  }
+
+  Future<void> deleteWrongNotebook(String id) async {
+    if (id == 'default') return;
+    final db = await database;
+    await db.update('wrong_questions', {'notebookId': 'default'}, where: 'notebookId = ?', whereArgs: [id]);
+    await db.delete('wrong_notebooks', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // WrongCustomTag CRUD ----------------------------------------------------
+  Future<void> createWrongCustomTag(WrongCustomTag tag) async {
+    final db = await database;
+    await db.insert('wrong_custom_tags', tag.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<WrongCustomTag>> getWrongCustomTags() async {
+    final db = await database;
+    final rows = await db.query('wrong_custom_tags', orderBy: 'createdAt ASC');
+    return rows.map((r) => WrongCustomTag.fromMap(Map<String, Object?>.from(r))).toList();
+  }
+
+  Future<void> updateWrongCustomTag(WrongCustomTag tag) async {
+    final db = await database;
+    await db.update('wrong_custom_tags', tag.toMap(), where: 'id = ?', whereArgs: [tag.id]);
+  }
+
+  Future<void> deleteWrongCustomTag(String id) async {
+    final db = await database;
+    await db.delete('wrong_question_tags', where: 'tagId = ?', whereArgs: [id]);
+    await db.delete('wrong_custom_tags', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // WrongQuestion tag associations -----------------------------------------
+  Future<void> setWrongQuestionTags(String questionId, List<String> tagIds) async {
+    final db = await database;
+    await db.delete('wrong_question_tags', where: 'questionId = ?', whereArgs: [questionId]);
+    for (final tagId in tagIds) {
+      await db.insert('wrong_question_tags', {'questionId': questionId, 'tagId': tagId});
+    }
+  }
+
+  Future<List<String>> getWrongQuestionTagIds(String questionId) async {
+    final db = await database;
+    final rows = await db.query('wrong_question_tags', where: 'questionId = ?', whereArgs: [questionId]);
+    return rows.map((r) => r['tagId'] as String).toList();
+  }
+
+  // Enhanced WrongQuestion CRUD --------------------------------------------
+  Future<void> createWrongQuestion(WrongQuestion question) async {
+    final db = await database;
+    await db.insert('wrong_questions', question.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> updateWrongQuestion(WrongQuestion question) async {
+    final db = await database;
+    await db.update('wrong_questions', question.toMap(), where: 'id = ?', whereArgs: [question.id]);
+  }
+
+  Future<List<WrongQuestion>> getWrongQuestions({String? subject, String? notebookId}) async {
+    final db = await database;
+    final conditions = <String>[];
+    final args = <Object?>[];
+    if (subject != null) { conditions.add('subject = ?'); args.add(subject); }
+    if (notebookId != null) { conditions.add('notebookId = ?'); args.add(notebookId); }
+    final rows = await db.query(
+      'wrong_questions',
+      where: conditions.isEmpty ? null : conditions.join(' AND '),
+      whereArgs: conditions.isEmpty ? null : args,
+      orderBy: 'createdAt DESC',
+    );
+    return rows.map((r) => WrongQuestion.fromMap(Map<String, Object?>.from(r))).toList();
+  }
+
+  Future<void> deleteWrongQuestion(String id) async {
+    final db = await database;
+    await db.delete('wrong_question_tags', where: 'questionId = ?', whereArgs: [id]);
+    await db.delete('wrong_questions', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> close() async {

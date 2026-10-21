@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/study_session.dart';
 import '../services/pomodoro.dart';
@@ -26,6 +27,35 @@ class _PomodoroCardState extends State<PomodoroCard> {
   late String _subject;
   final PomodoroTimer _timer = PomodoroTimer();
   Timer? _ticker;
+  bool _notified = false;
+  static const _reminder = MethodChannel('study_companion/reminder');
+
+  Future<void> _playReminder() async {
+    try {
+      final warning = await _reminder.invokeMethod<String>('play');
+      if (mounted && warning != null && warning.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(warning)));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('提醒调用失败，请安装最新 Android APK 后重试')),
+        );
+      }
+    }
+  }
+
+  Future<void> _customTime() async {
+    final duration = await showDialog<Duration>(
+      context: context,
+      builder: (_) => const _DurationDialog(),
+    );
+    if (!mounted || duration == null) return;
+    setState(() {
+      _timer.reset(customDuration: duration);
+      _notified = false;
+    });
+  }
 
   @override
   void initState() {
@@ -42,6 +72,7 @@ class _PomodoroCardState extends State<PomodoroCard> {
   void _ensureTicker() {
     _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
       if (_timer.status == PomodoroStatus.running && _timer.isFinished) {
+        _notifyCompletion();
         _complete();
       }
       if (mounted) setState(() {});
@@ -51,6 +82,11 @@ class _PomodoroCardState extends State<PomodoroCard> {
   void _selectPreset(PomodoroPreset preset) {
     if (_timer.status != PomodoroStatus.idle) return;
     setState(() => _timer.reset(newPreset: preset));
+  }
+
+  void _selectMode(PomodoroMode mode) {
+    if (_timer.status != PomodoroStatus.idle) return;
+    setState(() => _timer.reset(newMode: mode));
   }
 
   void _selectSubject(String subject) {
@@ -75,6 +111,7 @@ class _PomodoroCardState extends State<PomodoroCard> {
         case PomodoroStatus.completed:
           _timer.reset();
           _timer.start();
+          _notified = false;
           _ensureTicker();
           break;
       }
@@ -88,6 +125,12 @@ class _PomodoroCardState extends State<PomodoroCard> {
     widget.onCompleted?.call(session);
   }
 
+  void _notifyCompletion() {
+    if (_notified) return;
+    _notified = true;
+    unawaited(_playReminder());
+  }
+
   String _format(Duration duration) {
     final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '${duration.inMinutes.toString().padLeft(2, '0')}:$seconds';
@@ -96,6 +139,9 @@ class _PomodoroCardState extends State<PomodoroCard> {
   @override
   Widget build(BuildContext context) {
     final activeColor = StudySubject.fromLabel(_subject).color;
+    final displayedDuration = _timer.mode == PomodoroMode.countdown
+        ? _timer.remaining
+        : _timer.elapsed;
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
@@ -117,32 +163,69 @@ class _PomodoroCardState extends State<PomodoroCard> {
               ],
             ),
             const SizedBox(height: 16),
-            Row(
-              children: PomodoroPreset.values.map((preset) {
-                final selected = preset.duration == _timer.total;
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Center(child: Text('${preset.minutes}分钟')),
-                      selected: selected,
-                      onSelected: (_) => _selectPreset(preset),
-                      selectedColor: activeColor,
-                      backgroundColor: const Color(0xFFF1EFEC),
-                      labelStyle: TextStyle(
-                        color: selected ? Colors.white : StudyTheme.ink,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      side: BorderSide.none,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(22),
+            SegmentedButton<PomodoroMode>(
+              segments: const [
+                ButtonSegment(
+                  value: PomodoroMode.countdown,
+                  label: Text('倒计时'),
+                  icon: Icon(Icons.timer_outlined),
+                ),
+                ButtonSegment(
+                  value: PomodoroMode.countup,
+                  label: Text('正计时'),
+                  icon: Icon(Icons.more_time),
+                ),
+              ],
+              selected: {_timer.mode},
+              onSelectionChanged: (selection) =>
+                  _selectMode(selection.first),
+            ),
+            if (_timer.mode == PomodoroMode.countdown) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: PomodoroPreset.values.map((preset) {
+                  final selected = preset.duration == _timer.total;
+                  return Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Center(child: Text('${preset.minutes}分钟')),
+                        selected: selected,
+                        onSelected: (_) => _selectPreset(preset),
+                        selectedColor: activeColor,
+                        backgroundColor: const Color(0xFFF1EFEC),
+                        labelStyle: TextStyle(
+                          color: selected ? Colors.white : StudyTheme.ink,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        side: BorderSide.none,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(22),
+                        ),
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
+                  );
+                }).toList(),
+              ),
+              TextButton.icon(
+                onPressed: _timer.status == PomodoroStatus.idle ||
+                    _timer.status == PomodoroStatus.completed ? _customTime : null,
+                icon: const Icon(Icons.edit_outlined),
+                label: Text('自定义时长（当前 ${_format(_timer.total)}）'),
+              ),
+            ] else
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text(
+                  '自由计时，完成后点击勾号结束并记录',
+                  style: TextStyle(color: StudyTheme.muted),
+                ),
+              ),
+            TextButton.icon(
+              onPressed: _playReminder,
+              icon: const Icon(Icons.volume_up_outlined),
+              label: const Text('测试铃声和震动（5秒）'),
             ),
-            const SizedBox(height: 12),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -187,7 +270,7 @@ class _PomodoroCardState extends State<PomodoroCard> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          _format(_timer.remaining),
+                          _format(displayedDuration),
                           style: const TextStyle(
                             fontSize: 38,
                             fontWeight: FontWeight.w800,
@@ -212,7 +295,10 @@ class _PomodoroCardState extends State<PomodoroCard> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 IconButton.filledTonal(
-                  onPressed: () => setState(() => _timer.reset()),
+                  onPressed: () => setState(() {
+                    _timer.reset();
+                    _notified = false;
+                  }),
                   icon: const Icon(Icons.refresh),
                   tooltip: '重置',
                 ),
@@ -246,4 +332,64 @@ class _PomodoroCardState extends State<PomodoroCard> {
       ),
     );
   }
+}
+
+class _DurationDialog extends StatefulWidget {
+  const _DurationDialog();
+  @override
+  State<_DurationDialog> createState() => _DurationDialogState();
+}
+
+class _DurationDialogState extends State<_DurationDialog> {
+  final _form = GlobalKey<FormState>();
+  final _minutes = TextEditingController(text: '25');
+  final _seconds = TextEditingController(text: '0');
+
+  @override
+  void dispose() {
+    _minutes.dispose();
+    _seconds.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('自定义倒计时'),
+    content: SingleChildScrollView(
+      child: Form(
+        key: _form,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextFormField(
+            controller: _minutes,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(labelText: '分钟（0–1440）'),
+            validator: (value) {
+              final n = int.tryParse(value ?? '');
+              return n == null || n < 0 || n > 1440 ? '请输入0–1440分钟' : null;
+            },
+          ),
+          TextFormField(
+            controller: _seconds,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(labelText: '秒（0–59）'),
+            validator: (value) {
+              final n = int.tryParse(value ?? '');
+              if (n == null || n < 0 || n > 59) return '请输入0–59秒';
+              if ((int.tryParse(_minutes.text) ?? 0) == 0 && n == 0) return '时长必须大于0';
+              return null;
+            },
+          ),
+        ]),
+      ),
+    ),
+    actions: [
+      TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+      FilledButton(onPressed: () {
+        if (!_form.currentState!.validate()) return;
+        Navigator.pop(context, Duration(minutes: int.parse(_minutes.text), seconds: int.parse(_seconds.text)));
+      }, child: const Text('确定')),
+    ],
+  );
 }

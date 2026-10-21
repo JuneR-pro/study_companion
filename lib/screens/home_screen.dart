@@ -24,6 +24,9 @@ class HomeScreen extends StatefulWidget {
     required this.onExamChanged,
     required this.onExamAdded,
     required this.onExamDeleted,
+    required this.workspaceName,
+    required this.signature,
+    required this.onProfileChanged,
     this.onOpenTodos,
     this.onOpenStatistics,
   });
@@ -38,6 +41,9 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<Exam> onExamChanged;
   final ValueChanged<Exam> onExamAdded;
   final ValueChanged<Exam> onExamDeleted;
+  final String workspaceName;
+  final String signature;
+  final void Function(String name, String signature) onProfileChanged;
   final VoidCallback? onOpenTodos;
   final VoidCallback? onOpenStatistics;
 
@@ -46,6 +52,42 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  Future<void> _editProfile() async {
+    final nameController = TextEditingController(text: widget.workspaceName);
+    final signatureController = TextEditingController(text: widget.signature);
+    final result = await showDialog<(String, String)>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('编辑工作台信息'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+            controller: nameController,
+            decoration: const InputDecoration(labelText: '工作台名称'),
+            maxLength: 20,
+          ),
+          TextField(
+            controller: signatureController,
+            decoration: const InputDecoration(labelText: '个性签名'),
+            maxLength: 30,
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+          FilledButton(onPressed: () {
+            final name = nameController.text.trim();
+            if (name.isEmpty) return;
+            Navigator.pop(dialogContext, (name, signatureController.text.trim()));
+          }, child: const Text('保存')),
+        ],
+      ),
+    );
+    nameController.dispose();
+    signatureController.dispose();
+    if (result != null) {
+      widget.onProfileChanged(result.$1, result.$2);
+    }
+  }
+
   Future<void> _editExam(Exam exam) async {
     final nameController = TextEditingController(text: exam.name);
     var date = exam.examDate;
@@ -219,18 +261,26 @@ class _HomeScreenState extends State<HomeScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
           children: [
-            const Text(
-              '龙哥公考学习工作台',
-              style: TextStyle(
-                fontSize: 27,
-                fontWeight: FontWeight.w900,
-                color: StudyTheme.ink,
+            GestureDetector(
+              onTap: _editProfile,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.workspaceName,
+                    style: const TextStyle(
+                      fontSize: 27,
+                      fontWeight: FontWeight.w900,
+                      color: StudyTheme.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.signature,
+                    style: const TextStyle(fontSize: 16, color: StudyTheme.muted),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              '把每天的积累，变成上岸的底气',
-              style: TextStyle(fontSize: 16, color: StudyTheme.muted),
             ),
             const SizedBox(height: 24),
             ExamCountdownCard(exams: widget.exams, onTap: _editExam, onAdd: _addExam, onDelete: _confirmDeleteExam),
