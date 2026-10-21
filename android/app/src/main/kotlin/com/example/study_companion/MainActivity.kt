@@ -1,12 +1,14 @@
 package com.example.study_companion
 
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
@@ -26,6 +28,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "study_companion/reminder")
             .setMethodCallHandler { call, result ->
                 if (call.method != "play" && call.method != "stop") {
@@ -64,6 +67,58 @@ class MainActivity : FlutterActivity() {
                 } catch (e: Exception) { errors.add("震动调用失败") }
                 handler.postDelayed(stopAlert, 5000)
                 result.success(errors.joinToString("；"))
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "study_companion/overlay")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "canDrawOverlays" -> {
+                        result.success(Settings.canDrawOverlays(this))
+                    }
+                    "requestOverlayPermission" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                            intent.data = android.net.Uri.parse("package:$packageName")
+                            startActivity(intent)
+                        }
+                        result.success(null)
+                    }
+                    "startOverlay" -> {
+                        val subject = call.argument<String>("subject") ?: "学习"
+                        val intent = Intent(this, TimerOverlayService::class.java).apply {
+                            action = TimerOverlayService.ACTION_START
+                            putExtra(TimerOverlayService.EXTRA_SUBJECT, subject)
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(intent)
+                        } else {
+                            startService(intent)
+                        }
+                        result.success(null)
+                    }
+                    "updateOverlay" -> {
+                        val time = call.argument<String>("time") ?: "00:00"
+                        val subject = call.argument<String>("subject")
+                        val intent = Intent(this, TimerOverlayService::class.java).apply {
+                            action = TimerOverlayService.ACTION_UPDATE
+                            putExtra(TimerOverlayService.EXTRA_TIME, time)
+                            putExtra(TimerOverlayService.EXTRA_SUBJECT, subject)
+                        }
+                        startService(intent)
+                        result.success(null)
+                    }
+                    "stopOverlay" -> {
+                        val intent = Intent(this, TimerOverlayService::class.java).apply {
+                            action = TimerOverlayService.ACTION_STOP
+                        }
+                        startService(intent)
+                        result.success(null)
+                    }
+                    "isOverlayRunning" -> {
+                        result.success(TimerOverlayService.isRunning)
+                    }
+                    else -> result.notImplemented()
+                }
             }
     }
 

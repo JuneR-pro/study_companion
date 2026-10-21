@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/study_session.dart';
+import '../services/overlay_service.dart';
 import '../services/pomodoro.dart';
+import '../services/timer_state.dart';
 import '../utils/study_theme.dart';
 
 class PomodoroCard extends StatefulWidget {
@@ -29,6 +31,14 @@ class _PomodoroCardState extends State<PomodoroCard> {
   Timer? _ticker;
   bool _notified = false;
   static const _reminder = MethodChannel('study_companion/reminder');
+  bool _overlayPermissionGranted = false;
+
+  Future<void> _checkOverlayPermission() async {
+    final canDraw = await OverlayService.canDrawOverlays();
+    if (mounted) {
+      setState(() => _overlayPermissionGranted = canDraw);
+    }
+  }
 
   Future<void> _playReminder() async {
     try {
@@ -61,6 +71,7 @@ class _PomodoroCardState extends State<PomodoroCard> {
   void initState() {
     super.initState();
     _subject = widget.initialSubject;
+    _checkOverlayPermission();
   }
 
   @override
@@ -70,12 +81,24 @@ class _PomodoroCardState extends State<PomodoroCard> {
   }
 
   void _ensureTicker() {
-    _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+    _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) async {
       if (_timer.status == PomodoroStatus.running && _timer.isFinished) {
         _notifyCompletion();
         _complete();
       }
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        final isRunning = await OverlayService.isOverlayRunning();
+        if (isRunning) {
+          final displayed = _timer.mode == PomodoroMode.countdown
+              ? _timer.remaining
+              : _timer.elapsed;
+          OverlayService.updateOverlay(
+            time: _format(displayed),
+            subject: _subject,
+          );
+        }
+      }
     });
   }
 
@@ -100,19 +123,29 @@ class _PomodoroCardState extends State<PomodoroCard> {
         case PomodoroStatus.idle:
           _timer.start();
           _ensureTicker();
+          TimerState.instance.setRunning(true, subject: _subject);
+          if (_overlayPermissionGranted) {
+            OverlayService.startOverlay(subject: _subject);
+          }
           break;
         case PomodoroStatus.running:
           _timer.pause();
+          TimerState.instance.setRunning(false);
           break;
         case PomodoroStatus.paused:
           _timer.resume();
           _ensureTicker();
+          TimerState.instance.setRunning(true, subject: _subject);
           break;
         case PomodoroStatus.completed:
           _timer.reset();
           _timer.start();
           _notified = false;
           _ensureTicker();
+          TimerState.instance.setRunning(true, subject: _subject);
+          if (_overlayPermissionGranted) {
+            OverlayService.startOverlay(subject: _subject);
+          }
           break;
       }
     });
@@ -121,6 +154,8 @@ class _PomodoroCardState extends State<PomodoroCard> {
   void _complete() {
     final session = _timer.complete(subject: _subject);
     if (session == null) return;
+    TimerState.instance.setRunning(false);
+    OverlayService.stopOverlay();
     setState(() {});
     widget.onCompleted?.call(session);
   }
@@ -295,10 +330,14 @@ class _PomodoroCardState extends State<PomodoroCard> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 IconButton.filledTonal(
-                  onPressed: () => setState(() {
-                    _timer.reset();
-                    _notified = false;
-                  }),
+                  onPressed: () {
+                    TimerState.instance.setRunning(false);
+                    OverlayService.stopOverlay();
+                    setState(() {
+                      _timer.reset();
+                      _notified = false;
+                    });
+                  },
                   icon: const Icon(Icons.refresh),
                   tooltip: '重置',
                 ),

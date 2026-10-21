@@ -12,6 +12,8 @@ import '../models/todo.dart';
 import '../models/wrong_question.dart';
 import '../models/wrong_notebook.dart';
 import '../models/wrong_custom_tag.dart';
+import '../services/overlay_service.dart';
+import '../services/timer_state.dart';
 import '../utils/date_helpers.dart';
 import 'home_screen.dart';
 import 'material_screen.dart';
@@ -368,7 +370,22 @@ class _MainNavigationState extends State<MainNavigation> {
         onDeleted: _materialDeleted,
       ),
     ];
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (TimerState.instance.isRunning) {
+          await OverlayService.startOverlay(subject: TimerState.instance.subject);
+          if (context.mounted) {
+            Navigator.of(context).pop(result);
+          }
+        } else {
+          if (context.mounted) {
+            Navigator.of(context).pop(result);
+          }
+        }
+      },
+      child: Scaffold(
       body: Column(
         children: [
           if (_loadError != null)
@@ -403,6 +420,7 @@ class _MainNavigationState extends State<MainNavigation> {
           NavigationDestination(icon: Icon(Icons.collections_bookmark_outlined), selectedIcon: Icon(Icons.collections_bookmark), label: '积累'),
         ],
       ),
+    ),
     );
   }
 }

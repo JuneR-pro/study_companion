@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:\\\\Users\\\\Yvonne\\\\Desktop\\\\study_companion\" && flutter build apk --release 2>&1)",
+      "Bash(flutter pub:*)",
+      "Bash(flutter analyze --no-fatal-infos 2>&1 | head -50)",
+      "Bash(flutter analyze --no-fatal-infos 2>&1 | grep -E \"\\(error|warning\\)\" | head -20)"
+    ]
+  }
+}
